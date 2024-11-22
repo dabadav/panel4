@@ -2,9 +2,10 @@
 from dataclasses import dataclass
 from typing import List, Callable, Dict
 import numpy as np
-import pandas as pd
 import spacy
+
 nlp = spacy.load("en_core_web_md")
+
 
 # ------------------ Content Representation ------------------
 @dataclass
@@ -12,6 +13,7 @@ class Content:
     """
     A dataclass to store content information.
     """
+
     id: int
     text: str
     vector: list
@@ -21,26 +23,27 @@ class CorpusManager:
     """
     A class to handle the ingestion and embedding of a text corpus.
     """
+
     def __init__(self, embedding_function: Callable[[str], list]):
         """
         Initializes the CorpusManager with a specified embedding function.
-        
+
         Args:
             embedding_function (Callable[[str], list]): A function that takes a string as input
                 and returns an embedding vector as a list.
         """
         self.embedding_function = embedding_function
-    
+
     def compute_text_embedding(self, text: str) -> list:
         """
         Computes the embedding vector for the given text using the specified embedding function.
         """
         return self.embedding_function(text)
-    
+
     def ingest_corpus(self, df) -> Dict[int, Content]:
         """
         Reads the corpus from a CSV file and computes embeddings for each text entry.
-        
+
         Args:
             file_path (str): Path to the CSV file with columns 'id' and 'text'.
 
@@ -49,9 +52,7 @@ class CorpusManager:
         """
         corpus = {
             row["id"]: Content(
-                id=row["id"],
-                text=row["text"],
-                vector=self.compute_text_embedding(row["text"])
+                id=row["id"], text=row["text"], vector=self.compute_text_embedding(row["text"])
             )
             for _, row in df.iterrows()
         }
@@ -68,7 +69,7 @@ def spacy_embedding(text: str) -> list:
 
 
 # BERT embedding functions
-def huggingface_embedding(text: str) -> list:   
+def huggingface_embedding(text: str) -> list:
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
     with torch.no_grad():
         outputs = model(**inputs)
@@ -80,7 +81,7 @@ class Visitor:
     """
     Tracks visitor interaction history and provides access to relevant vectors.
     """
-    
+
     def __init__(self):
         self.history = {}  # Stores {content_id: {}}
 
@@ -90,30 +91,32 @@ class Visitor:
         """
         if content.id not in self.history:
             self.history[content.id] = []
-            
-        self.history[content.id].append({
-            "content": content,  # Store reference to the Content instance
-            "event": event,
-            "timestamp": timestamp,
-            "isrecommended": isrecommended
-        })
-        
+
+        self.history[content.id].append(
+            {
+                "content": content,  # Store reference to the Content instance
+                "event": event,
+                "timestamp": timestamp,
+                "isrecommended": isrecommended,
+            }
+        )
+
     def get_n_last_visited(self, n: int = 2):
         """
         Retrieves the Content instances of the n last visited content items based on the "close" event.
-    
+
         Args:
             n (int): The number of last visited content items to retrieve.
-    
+
         Returns:
             list: A list of Content instances for the last n visited content items based on the "close" event.
-    
+
         Raises:
             ValueError: If n is greater than the number of visited unique contents or the history is empty.
         """
         if not self.history:
             raise ValueError("Visitor has no content history!")
-        
+
         # Flatten all events into a list
         all_events = [
             {"content_id": content_id, **event}
@@ -129,7 +132,7 @@ class Visitor:
         if n > len(unique_content_ids):
             n = len(unique_content_ids)
             # raise ValueError(f"Requested {n} items, but only {len(unique_content_ids)} unique 'close' events in history!")
-    
+
         # Collect the last n unique Content instances
         visited_content = []
         seen_content_ids = set()
@@ -148,6 +151,7 @@ class SimilarityEngine:
     """
     Abstract base class for similarity computation engines.
     """
+
     def compute_similarity(self, target_vector, corpus, top_k):
         """
         Computes similarity of the target vector against the corpus.
@@ -160,6 +164,7 @@ class MilvusManager:
     """
     Handles interactions with the Milvus vector database.
     """
+
     def __init__(self, milvus_client):
         self.milvus_client = milvus_client
 
@@ -176,15 +181,14 @@ class MilvusManager:
         """
         # Modify
         query_result = self.collection.query(
-            expr=f"{self.user_id_field} == '{user_id}'",
-            output_fields=[self.profile_vector_field]
+            expr=f"{self.user_id_field} == '{user_id}'", output_fields=[self.profile_vector_field]
         )
 
         # Check if true
         content_vector = query_result
-        
+
         return content_vector
-    
+
     def query_similar_vectors(self, content_id, top_k):
         """
         Queries Milvus for the top-k similar vectors to the target vector.
@@ -204,11 +208,11 @@ class MilvusManager:
             anns_field=self.profile_vector_field,
             param=search_params,
             limit=top_k,
-            output_fields=[self.content_id_field]
+            output_fields=[self.content_id_field],
         )
 
         # Return similar content
-        similar_content = results # list(list(str, float))
+        similar_content = results  # list(list(str, float))
         return similar_content
 
     def delete_vector(self, content_id):
@@ -223,6 +227,7 @@ class MilvusSimilarityEngine(SimilarityEngine):
     """
     Computes similarity using the Milvus vector database.
     """
+
     def __init__(self, milvus_manager):
         self.milvus_manager = milvus_manager
 
@@ -238,9 +243,10 @@ class InMemorySimilarityEngine(SimilarityEngine):
     """
     Computes similarity in memory using vector-based operations.
     """
+
     def __init(self):
         pass
-        
+
     def compute_similarity(self, content: Content, corpus: Dict[int, Content], top_k=100):
         """
         Computes similarity of the target vector against an in-memory corpus of vectors.
@@ -263,23 +269,25 @@ class InMemorySimilarityEngine(SimilarityEngine):
         norm2 = np.linalg.norm(vector2)
         similarity = dot_product / (norm1 * norm2 + 1e-10)  # To avoid division by zero
         return np.array(similarity)
-        
+
+
 # ------------------ Recommendation System ------------------
 class RecSys:
     """
     Core recommendation system logic that integrates with a similarity engine.
     """
+
     def __init__(self, similarity_engine: SimilarityEngine, contents: Dict[int, Content]):
         self.similarity_engine = similarity_engine  # Either Milvus or In-Memory engine
         self.contents = contents  # Corpus of content items
-        
+
     def recommend(self, visitor: Visitor, num_recommendations: int = 12):
         """Returns sequence of 12 content pieces
 
         Look at the last content history of visitor
 
         Compute similarity for visited content
-        Turn similarity into probability distribution 
+        Turn similarity into probability distribution
 
         Merge probability distributions (could use normalized time spent as a weight)
 
@@ -288,21 +296,25 @@ class RecSys:
 
         # Get last n visited content
         visited_content = visitor.get_n_last_visited()
-    
+
         if not visited_content:
             raise ValueError("Visitor has no content history.")
-    
+
         # Initialize probability distribution list
         prob_dist_list = []
 
         # TODO: Visited content to ~0 prob
-        
+
         for content in visited_content:
             # Corpus similarity of content visited
             similarities = self.similarity_engine.compute_similarity(
                 content=content,
-                corpus=self.contents if isinstance(self.similarity_engine, InMemorySimilarityEngine) else None,
-                top_k=100
+                corpus=(
+                    self.contents
+                    if isinstance(self.similarity_engine, InMemorySimilarityEngine)
+                    else None
+                ),
+                top_k=100,
             )
             # Extract labels and similarity scores
             labels = [sim[0] for sim in similarities]
@@ -320,13 +332,10 @@ class RecSys:
 
         # Merge the PMFs using multiplication method
         unified_labels, merged_probabilities = self.merge_pmf(prob_dist_list)
-        
+
         # Randomly sample items based on the probability distribution
         recommended = np.random.choice(
-            unified_labels,
-            size=num_recommendations,
-            replace=False,
-            p=merged_probabilities
+            unified_labels, size=num_recommendations, replace=False, p=merged_probabilities
         )
 
         return recommended
@@ -336,7 +345,7 @@ class RecSys:
         """
         Merges multiple probability mass functions (PMFs) by element-wise multiplication
         and then normalizes the resulting distribution.
-        
+
         :param prob_dist_list: A list of tuples where each tuple contains:
                                 - labels (list): The list of labels for the PMF.
                                 - prob_dist (numpy array): The probability distribution corresponding to the labels.

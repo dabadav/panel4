@@ -1,13 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List
 import pandas as pd
 import time
-from Panel4b import RecSys, InMemorySimilarityEngine, Visitor, CorpusManager, spacy_embedding
+from panel4.Panel4 import RecSys, InMemorySimilarityEngine, Visitor, CorpusManager, spacy_embedding
+
 
 class ContentInput(BaseModel):
     id: int
     text: str
+
 
 class VisitorUpdateInput(BaseModel):
     content_id: int
@@ -15,8 +17,10 @@ class VisitorUpdateInput(BaseModel):
     timestamp: float = time.time()
     isrecommended: int
 
+
 class RecommendationOutput(BaseModel):
     recommended_ids: List[int]
+
 
 app = FastAPI()
 
@@ -33,6 +37,7 @@ visitors = {}
 #     corpus_manager.add_content(content_input)
 #     return {"message": "Content added successfully."}
 
+
 @app.post("/visitor/{visitor_id}/update/")
 async def update_visitor(visitor_id: str, update_input: VisitorUpdateInput):
     visitor = visitors.get(visitor_id, Visitor())
@@ -42,6 +47,7 @@ async def update_visitor(visitor_id: str, update_input: VisitorUpdateInput):
     visitor.update(content, update_input.event, update_input.timestamp, update_input.isrecommended)
     visitors[visitor_id] = visitor
     return {"message": "Visitor history updated successfully."}
+
 
 @app.get("/visitor/{visitor_id}/recommendations/", response_model=RecommendationOutput)
 async def get_recommendations(visitor_id: str, num_recommendations: int = 12):

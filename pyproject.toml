@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "panel4"
+version = "0.1.0"
+description = ""
+authors = ["dabadav <dante.avino@alum.esci.upf.edu>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pandas = "^2.2.3"
+fastapi = "^0.115.5"
+uvicorn = "^0.32.1"
+spacy = "^3.8.2"
+en-core-web-md = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0.tar.gz"}
+
+[tool.poetry.scripts]
+start-recsys-api = "panel4.cli:start_api"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
