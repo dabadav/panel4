@@ -1,9 +1,12 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+"""FastAPI File
+"""
+
 from typing import List
-import pandas as pd
 import time
-from panel4.Panel4 import RecSys, InMemorySimilarityEngine, Visitor, CorpusManager, spacy_embedding
+from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
+import pandas as pd
+from panel4.panel4 import RecSys, InMemorySimilarityEngine, Visitor, CorpusManager, spacy_embedding
 
 
 class ContentInput(BaseModel):
@@ -32,14 +35,10 @@ similarity_engine = InMemorySimilarityEngine()
 recsys = RecSys(similarity_engine, corpus)
 visitors = {}
 
-# @app.post("/content/")
-# async def add_content(content_input: ContentInput):
-#     corpus_manager.add_content(content_input)
-#     return {"message": "Content added successfully."}
-
 
 @app.post("/visitor/{visitor_id}/update/")
 async def update_visitor(visitor_id: str, update_input: VisitorUpdateInput):
+    """Add visitor events"""
     visitor = visitors.get(visitor_id, Visitor())
     content = recsys.contents.get(update_input.content_id)
     if content is None:
@@ -51,6 +50,7 @@ async def update_visitor(visitor_id: str, update_input: VisitorUpdateInput):
 
 @app.get("/visitor/{visitor_id}/recommendations/", response_model=RecommendationOutput)
 async def get_recommendations(visitor_id: str, num_recommendations: int = 12):
+    """Given visitor content navigation history provide content recommendations"""
     visitor = visitors.get(visitor_id)
     if not visitor:
         raise HTTPException(status_code=404, detail="Visitor not found.")
@@ -58,4 +58,4 @@ async def get_recommendations(visitor_id: str, num_recommendations: int = 12):
         recommended_ids = recsys.recommend(visitor, num_recommendations)
         return {"recommended_ids": recommended_ids}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e

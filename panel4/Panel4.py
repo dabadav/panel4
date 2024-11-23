@@ -1,6 +1,8 @@
 # Return a sequence of content to visitors
 from dataclasses import dataclass
-from typing import List, Callable, Dict
+from abc import ABC, abstractmethod
+from typing import Callable, Dict
+from collections import OrderedDict
 import numpy as np
 import spacy
 
@@ -68,45 +70,59 @@ def spacy_embedding(text: str) -> list:
     return doc.vector
 
 
-# BERT embedding functions
-def huggingface_embedding(text: str) -> list:
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-    with torch.no_grad():
-        outputs = model(**inputs)
-    return outputs.last_hidden_state.mean(dim=1).squeeze().tolist()
-
-
 # ------------------ Visitor Representation ------------------
+@dataclass
+class VisitorEvent:
+    """
+    Dataclass to store visitor events
+    """
+
+    content: Content
+    event: str
+    timestamp: int
+    isrecommended: int
+
+
 class Visitor:
     """
     Tracks visitor interaction history and provides access to relevant vectors.
     """
 
     def __init__(self):
-        self.history = {}  # Stores {content_id: {}}
+        self.history = OrderedDict()  # Stores {content_id: [VisitorEvent, ...]}
 
     def update(self, content, event, timestamp, isrecommended):
         """
         Updates the visitor's history with new content interactions.
+
+        Args:
+            content (Content): The content instance associated with the event.
+            event (str): Type of event (e.g., "open", "close").
+            timestamp (int): Event timestamp.
+            isrecommended (int): Whether the content was recommended (1) or not (0).
         """
         if content.id not in self.history:
             self.history[content.id] = []
 
-        self.history[content.id].append(
-            {
-                "content": content,  # Store reference to the Content instance
-                "event": event,
-                "timestamp": timestamp,
-                "isrecommended": isrecommended,
-            }
+        visitor_event = VisitorEvent(
+            content=content,  # Store reference to the Content instance
+            event=event,
+            timestamp=timestamp,
+            isrecommended=isrecommended,
         )
+
+        # Append the new event
+        self.history[content.id].append(visitor_event)
+
+        # Move the updated content to the end to maintain order by most recent usage
+        self.history.move_to_end(content.id)
 
     def get_n_last_visited(self, n: int = 2):
         """
-        Retrieves the Content instances of the n last visited content items based on the "close" event.
+        Retrieves the Content instances of the most recent n visited content.
 
         Args:
-            n (int): The number of last visited content items to retrieve.
+            n (int): The number of recent visited content items to retrieve.
 
         Returns:
             list: A list of Content instances for the last n visited content items based on the "close" event.
@@ -114,45 +130,27 @@ class Visitor:
         Raises:
             ValueError: If n is greater than the number of visited unique contents or the history is empty.
         """
+
         if not self.history:
             raise ValueError("Visitor has no content history!")
 
-        # Flatten all events into a list
-        all_events = [
-            {"content_id": content_id, **event}
-            for content_id, events in self.history.items()
-            for event in events
-        ]
-        # Filter for "close" events only
-        close_events = [event for event in all_events if event["event"] == "close"]
-        # Sort "close" events by timestamp in descending order
-        close_events.sort(key=lambda x: x["timestamp"], reverse=True)
-        # Check if there are enough unique "close" events
-        unique_content_ids = {event["content_id"] for event in close_events}
-        if n > len(unique_content_ids):
-            n = len(unique_content_ids)
-            # raise ValueError(f"Requested {n} items, but only {len(unique_content_ids)} unique 'close' events in history!")
+        # Adjust `n` to not exceed the number of items in history
+        n = min(n, len(self.history))
 
-        # Collect the last n unique Content instances
-        visited_content = []
-        seen_content_ids = set()
-        for event in close_events:
-            if event["content_id"] not in seen_content_ids:
-                visited_content.append(event["content"])
-                seen_content_ids.add(event["content_id"])
-                if len(visited_content) == n:
-                    break
+        # Retrieve the last `n` unique content items
+        visited_content = [events[-1].content for _, events in reversed(self.history.items())][:n]
 
         return visited_content
 
 
 # ------------------ Similarity Engine Interface ------------------
-class SimilarityEngine:
+class SimilarityEngine(ABC):
     """
     Abstract base class for similarity computation engines.
     """
 
-    def compute_similarity(self, target_vector, corpus, top_k):
+    @abstractmethod
+    def compute_similarity(self, content: Content, corpus: Dict[int, Content], top_k=100):
         """
         Computes similarity of the target vector against the corpus.
         """
@@ -173,54 +171,24 @@ class MilvusManager:
         Stores a content vector in Milvus with an associated content ID.
         """
         # Placeholder for Milvus insertion logic
-        pass
 
     def get_vector(self, content_id):
         """
         Retrieve the corresponding vector of a content ID
         """
-        # Modify
-        query_result = self.collection.query(
-            expr=f"{self.user_id_field} == '{user_id}'", output_fields=[self.profile_vector_field]
-        )
+        # Placeholder for Milvus query logic
 
-        # Check if true
-        content_vector = query_result
-
-        return content_vector
-
-    def query_similar_vectors(self, content_id, top_k):
+    def query_similar_vectors(self, content_vector, top_k):
         """
         Queries Milvus for the top-k similar vectors to the target vector.
         """
         # Placeholder for Milvus query logic
-        search_params = {
-            "metric_type": metric_type,
-            "params": {"nprobe": 10},
-        }
-
-        # Get content vector
-        emmbedding = self.get_vector(content_id)
-
-        # Perform similarity search
-        results = self.collection.search(
-            data=[embedding],
-            anns_field=self.profile_vector_field,
-            param=search_params,
-            limit=top_k,
-            output_fields=[self.content_id_field],
-        )
-
-        # Return similar content
-        similar_content = results  # list(list(str, float))
-        return similar_content
 
     def delete_vector(self, content_id):
         """
         Deletes a content vector from Milvus using the content ID.
         """
         # Placeholder for Milvus deletion logic
-        pass
 
 
 class MilvusSimilarityEngine(SimilarityEngine):
@@ -231,11 +199,11 @@ class MilvusSimilarityEngine(SimilarityEngine):
     def __init__(self, milvus_manager):
         self.milvus_manager = milvus_manager
 
-    def compute_similarity(self, target_vector, corpus=None, top_k=100):
+    def compute_similarity(self, content: Content, corpus=None, top_k=100):
         """
         Queries Milvus for top-k similar vectors to the target vector.
         """
-        return self.milvus_manager.query_similar_vectors(target_vector, top_k)
+        return self.milvus_manager.query_similar_vectors(content.vector, top_k)
 
 
 # ------------------ In-Memory Similarity Engine ------------------
@@ -244,7 +212,7 @@ class InMemorySimilarityEngine(SimilarityEngine):
     Computes similarity in memory using vector-based operations.
     """
 
-    def __init(self):
+    def __init__(self):
         pass
 
     def compute_similarity(self, content: Content, corpus: Dict[int, Content], top_k=100):
